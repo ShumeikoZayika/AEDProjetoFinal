@@ -1,0 +1,310 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[portuguese]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+
+\geometry{top=2.5cm, bottom=2.5cm, left=2.8cm, right=2.8cm}
+
+% ---------- cores e estilo de código ----------
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{keyword}{RGB}{0,0,180}
+\definecolor{comment}{RGB}{80,120,80}
+\definecolor{string}{RGB}{160,30,30}
+\definecolor{darkblue}{RGB}{0,40,100}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{keyword}\bfseries,
+  commentstyle=\color{comment}\itshape,
+  stringstyle=\color{string},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  numbers=none,
+}
+
+% ---------- cabeçalho ----------
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small AED 2025--26}
+\lhead{\small Grafo de Conhecimento CTI}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------- título ----------
+\title{%
+  \vspace{-1cm}
+  {\large Escola Naval \textemdash\ Curso EN-AEL}\\[0.4cm]
+  {\large Algoritmos e Estruturas de Dados 2025--26}\\[0.8cm]
+  {\LARGE\bfseries Grafo de Conhecimento para\\[0.2cm]
+   Cyber Threat Intelligence}\\[0.4cm]
+  {\large Relatório Técnico \textemdash\ Nível 3: Algoritmos de Análise}
+}
+\author{Daniel Zayika}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introdução}
+
+Este relatório documenta a implementação e os resultados do \textbf{Nível~3} do projeto, que acrescenta algoritmos de análise de grafos ao sistema de Knowledge Graph para Cyber Threat Intelligence (CTI) desenvolvido nos níveis anteriores.
+
+O sistema representa entidades de segurança (atores, malware, indicadores, campanhas, vulnerabilidades) como nós de um grafo dirigido, com relações tipadas entre elas. O Nível~3 transforma este repositório de dados numa \emph{ferramenta analítica}: é agora possível atravessar o grafo, descobrir caminhos entre entidades, quantificar a relevância de cada nó e resolver aliases de atores reportados sob nomes diferentes.
+
+O dataset sintético utilizado contém \textbf{22 nós} e \textbf{26 relações}, modelando dois cenários reais: o ataque \emph{SolarWinds Supply Chain} (2020), atribuído ao APT29/Cozy Bear, e a campanha \emph{WannaCry} (2017), atribuída ao Lazarus Group.
+
+% ============================================================
+\section{Estrutura do Código}
+
+O código está organizado nos seguintes módulos:
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Ficheiro} & \textbf{Responsabilidade} \\
+\midrule
+\texttt{src/types.h}           & Enumerações \texttt{EntityType} e \texttt{RelationType}; matriz de relações válidas \\
+\texttt{src/node.h}            & Estrutura \texttt{Node} (id, label, tipo, propriedades) \\
+\texttt{src/edge.h}            & Estrutura \texttt{Edge} (origem, destino, relação, descrição) \\
+\texttt{src/graph.h/.cpp}      & Classe \texttt{Graph}: lista de adjacência, inserção, consultas \\
+\texttt{src/database.h/.cpp}   & Camada SQLite: persistência e carregamento do grafo \\
+\texttt{src/algorithms.h/.cpp} & Algoritmos: BFS, DFS, caminho mais curto, PageRank, resolução de entidades, consultas analíticas \\
+\texttt{src/synthetic\_data.h/.cpp} & Dataset sintético com entidades e relações CTI reais \\
+\texttt{src/tests.h/.cpp}      & Suite de testes automáticos \\
+\texttt{main.cpp}              & Ponto de entrada; demonstração em consola \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================
+\section{Algoritmos Implementados}
+
+\subsection{Travessia em Largura (BFS)}
+
+A BFS (\emph{Breadth-First Search}) explora o grafo nível a nível a partir de um nó inicial, utilizando uma fila (\texttt{std::queue}). Visita primeiro todos os vizinhos diretos, depois os vizinhos dos vizinhos, e assim sucessivamente.
+
+\medskip
+\noindent\textbf{Complexidade:} $O(V + E)$, onde $V$ é o número de nós e $E$ o número de arestas.
+
+\medskip
+\noindent\textbf{Resultado obtido} (partindo de \texttt{apt29}, grafo dirigido):
+
+\begin{lstlisting}
+apt29 -> camp-solarwinds -> id-nato -> id-usgov -> mimikatz -> sunburst
+      -> atk-cred-dump -> atk-supply-chain -> teardrop
+\end{lstlisting}
+
+A BFS garante que os nós mais próximos de \texttt{apt29} são visitados primeiro: a campanha e os alvos diretos aparecem antes do malware e das técnicas de ataque, que se encontram a maior distância no grafo.
+
+\subsection{Travessia em Profundidade (DFS)}
+
+A DFS (\emph{Depth-First Search}) explora cada ramo do grafo até ao fim antes de recuar, utilizando uma pilha (\texttt{std::stack}).
+
+\medskip
+\noindent\textbf{Complexidade:} $O(V + E)$.
+
+\medskip
+\noindent\textbf{Resultado obtido} (partindo de \texttt{apt29}, grafo dirigido):
+
+\begin{lstlisting}
+apt29 -> camp-solarwinds -> id-usgov -> sunburst -> atk-supply-chain
+      -> teardrop -> id-nato -> mimikatz -> atk-cred-dump
+\end{lstlisting}
+
+Ao contrário da BFS, a DFS segue imediatamente a cadeia \texttt{camp-solarwinds} $\to$ \texttt{sunburst} $\to$ \texttt{atk-supply-chain} $\to$ \texttt{teardrop} em profundidade, revelando a cadeia de ataque completa antes de voltar para os alvos.
+
+\subsection{Caminho Mais Curto}
+
+Implementado com BFS sobre o grafo não ponderado (cada aresta tem custo unitário). O algoritmo regista o nó pai de cada nó visitado e reconstrói o caminho por retrocesso (\emph{backtracking}).
+
+\medskip
+\noindent\textbf{Complexidade:} $O(V + E)$.
+
+\medskip
+\noindent\textbf{Resultados obtidos:}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Origem} & \textbf{Destino} & \textbf{Caminho} \\
+\midrule
+\texttt{ioc-hash-sunburst} & \texttt{apt29}       & \texttt{ioc-hash-sunburst} $\to$ \texttt{sunburst} $\to$ \texttt{apt29} \\
+\texttt{ioc-ip-91}         & \texttt{id-nato}     & \texttt{ioc-ip-91} $\to$ \texttt{apt28} $\to$ \texttt{id-nato} \\
+\texttt{ioc-hash-wannacry} & \texttt{vuln-ms17-010} & \texttt{ioc-hash-wannacry} $\to$ \texttt{wannacry} $\to$ \texttt{vuln-ms17-010} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+Os três caminhos têm comprimento~2 (três nós), o que reflete a estrutura do dataset: os indicadores ligam-se diretamente ao malware/ator, que por sua vez se liga ao alvo ou vulnerabilidade. Estes caminhos curtos são exatamente o que um analista CTI precisa para justificar uma atribuição.
+
+\subsection{PageRank}
+
+O PageRank quantifica a importância de cada nó com base na estrutura de ligações do grafo. Um nó é relevante se muitos nós relevantes apontam para ele. A fórmula iterativa é:
+
+\[
+  PR(u) = \frac{1-d}{N} + d \sum_{v \in \text{In}(u)} \frac{PR(v)}{\text{Out}(v)}
+\]
+
+onde $d = 0{,}85$ é o fator de amortecimento, $N$ o número total de nós, $\text{In}(u)$ o conjunto de nós que apontam para $u$ e $\text{Out}(v)$ o grau de saída de $v$. O algoritmo inclui tratamento de \emph{dangling nodes} (nós sem arestas de saída), redistribuindo a sua massa uniformemente.
+
+\medskip
+\noindent\textbf{Complexidade por iteração:} $O(V + E)$. Converge tipicamente em menos de 100 iterações.
+
+\medskip
+\noindent\textbf{Top-8 entidades por PageRank:}
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+\textbf{\#} & \textbf{Entidade} & \textbf{Score} & \textbf{Tipo} \\
+\midrule
+1 & \texttt{sunburst}         & 0.114667 & malware \\
+2 & \texttt{camp-solarwinds}  & 0.096785 & campaign \\
+3 & \texttt{atk-supply-chain} & 0.070113 & attack-pattern \\
+4 & \texttt{teardrop}         & 0.070113 & malware \\
+5 & \texttt{vuln-ms17-010}    & 0.070058 & vulnerability \\
+6 & \texttt{id-usgov}         & 0.069236 & identity \\
+7 & \texttt{wannacry}         & 0.057269 & malware \\
+8 & \texttt{atk-cred-dump}    & 0.045267 & attack-pattern \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\noindent\textbf{Interpretação:} O \texttt{SUNBURST} lidera com grande margem porque é referenciado por múltiplas entidades de alto peso: \texttt{apt29}, \texttt{dukes}, \texttt{camp-solarwinds} e dois indicadores IoC. A campanha \emph{SolarWinds} ocupa o segundo lugar por ser o hub central do maior cluster do grafo. A \texttt{vuln-ms17-010} (EternalBlue) surge no top-5 apesar de pertencer ao cluster WannaCry, que é menor, porque é um ponto de convergência único nesse cluster — apenas o WannaCry aponta para ela, mas o WannaCry tem alto score por si próprio.
+
+\subsection{Resolução de Entidades}
+
+O sistema implementa resolução de aliases com dois mecanismos:
+
+\begin{enumerate}
+  \item \textbf{\texttt{resolveByName}}: normaliza a query (minúsculas, apenas alfanuméricos) e compara com todas as variantes de cada nó: id, label, partes do label separadas por~``/'', e a propriedade \texttt{alias}.
+
+  \item \textbf{\texttt{findPotentialDuplicates}}: agrupa nós que partilham pelo menos uma variante normalizada em comum.
+\end{enumerate}
+
+\medskip
+\noindent\textbf{Resultados obtidos:}
+
+\begin{lstlisting}
+resolveByName("APT29")     -> [apt29] "APT29 / Cozy Bear"
+resolveByName("Cozy Bear") -> [apt29] "APT29 / Cozy Bear"
+                              [dukes] "The Dukes"
+
+Duplicados detectados: { apt29, dukes }
+\end{lstlisting}
+
+O nó \texttt{dukes} foi introduzido propositadamente no dataset para simular uma segunda fonte de inteligência que reporta o mesmo ator sob o nome \emph{The Dukes}, com \texttt{alias = "Cozy Bear"}. O algoritmo deteta corretamente que ambos partilham o alias e os agrupa como potenciais duplicados — situação frequente em CTI real, onde diferentes feeds usam nomenclaturas distintas para o mesmo ator.
+
+% ============================================================
+\section{Consultas Analíticas}
+
+\subsection{Atores que usam determinado malware}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Malware} & \textbf{Atores} \\
+\midrule
+\texttt{sunburst}  & \texttt{apt29} (APT29/Cozy Bear), \texttt{dukes} (The Dukes) \\
+\texttt{wannacry}  & \texttt{lazarus} (Lazarus Group) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A consulta para \texttt{sunburst} devolve dois atores porque o dataset contém intencionalmente o nó duplicado \texttt{dukes}. Após resolução de entidades, conclui-se que ambos representam o mesmo ator.
+
+\subsection{Indicadores que apontam para determinada ameaça}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Ameaça} & \textbf{Indicadores (IoCs)} \\
+\midrule
+\texttt{sunburst} & \texttt{ioc-domain-avsvmcloud} (\texttt{avsvmcloud[.]com}) \\
+                  & \texttt{ioc-hash-sunburst} (SHA-256 da DLL maliciosa) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Estes dois IoCs são suficientes para detetar a presença do SUNBURST numa rede: o hash identifica o binário e o domínio identifica o servidor C2.
+
+% ============================================================
+\section{Cenário de Investigação}
+
+O sistema foi demonstrado com o seguinte cenário narrativo, típico de uma investigação CTI:
+
+\begin{enumerate}
+  \item Um analista deteta nos logs o hash \texttt{32519b85...} (indicador \texttt{ioc-hash-sunburst}).
+  \item O sistema resolve: o indicador \emph{indica} o malware \texttt{SUNBURST}.
+  \item Consulta analítica: que atores usam o SUNBURST? $\to$ \texttt{apt29} e \texttt{dukes}.
+  \item Resolução de entidades: \texttt{apt29} e \texttt{dukes} são o mesmo ator (APT29/Cozy Bear/The Dukes).
+  \item Caminho mais curto que justifica a atribuição:
+  \[
+    \texttt{ioc-hash-sunburst} \to \texttt{sunburst} \to \texttt{apt29}
+  \]
+  \item Conclusão: o incidente é atribuível ao APT29, grupo de espionagem russo que comprometeu agências do governo norte-americano através da supply chain da SolarWinds.
+\end{enumerate}
+
+Este cenário demonstra como o grafo transforma dados dispersos (um hash isolado) em conhecimento estruturado e acionável (atribuição a um ator com justificação pelo caminho de relações).
+
+% ============================================================
+\section{Testes}
+
+A suite de testes automáticos (\texttt{./cti\_graph --testes}) cobre:
+
+\begin{itemize}
+  \item Inserção e validação de nós e relações
+  \item Vizinhos e filtragem por tipo de entidade
+  \item Integridade do dataset sintético
+  \item Persistência SQLite (round-trip guardar/carregar)
+  \item BFS, DFS, caminho mais curto, PageRank
+  \item Resolução de entidades e deteção de duplicados
+  \item Consultas analíticas
+\end{itemize}
+
+\medskip
+\noindent Todos os testes passaram com sucesso na execução documentada neste relatório.
+
+% ============================================================
+\section{Conclusões}
+
+O Nível~3 transforma o sistema de um repositório passivo num motor de análise. Os principais resultados são:
+
+\begin{itemize}
+  \item O \textbf{SUNBURST} é a entidade mais central do grafo (PageRank = 0.1147), refletindo o papel pivô que desempenhou no ataque SolarWinds como ponto de convergência entre o ator, a campanha e os indicadores.
+
+  \item O \textbf{caminho mais curto} permite justificar atribuições de forma auditável: em apenas dois saltos é possível ligar um IoC ao ator responsável.
+
+  \item A \textbf{resolução de entidades} é essencial em CTI real, onde o mesmo ator é frequentemente reportado sob nomes diferentes por fontes distintas. O mecanismo implementado deteta corretamente o alias \emph{Cozy Bear} como denominador comum entre \texttt{apt29} e \texttt{dukes}.
+
+  \item A combinação de BFS/DFS com consultas analíticas permite responder às perguntas fundamentais de threat intelligence: \emph{quem usa o quê}, \emph{o que aponta para quê}, e \emph{qual o caminho entre dois pontos do grafo}.
+\end{itemize}
+
+\end{document}
